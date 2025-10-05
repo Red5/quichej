@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.cloudflare</groupId>
+    <artifactId>quiche-java-wrapper</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+    <name>Quiche Java Wrapper</name>
+    <description>Java wrapper for Cloudflare's quiche library</description>
+    <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <native.build.dir>${project.build.directory}/native</native.build.dir>
+    </properties>
+    <dependencies>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>2.0.9</version>
+        </dependency>
+    </dependencies>
+    <build>
+        <plugins>
+            <!-- Compiler plugin -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <source>21</source>
+                    <target>21</target>
+                </configuration>
+            </plugin>
+            <!-- Native compilation plugin -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>build-native</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>sh</executable>
+                            <arguments>
+                                <argument>-c</argument>
+                                <argument>
+                                    cd ${project.basedir} &amp;&amp;
+                                    mkdir -p ${native.build.dir} &amp;&amp;
+                                    git clone https://github.com/cloudflare/quiche.git ${native.build.dir}/quiche &amp;&amp;
+                                    cd ${native.build.dir}/quiche &amp;&amp;
+                                    cargo build --release --target x86_64-unknown-linux-gnu --features "ffi" &amp;&amp;
+                                    cp quiche/include/quiche.h ${project.basedir}/src/main/native/ &amp;&amp;
+                                    cp target/x86_64-unknown-linux-gnu/release/libquiche.so ${project.basedir}/src/main/resources/
+                                </argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- Resource plugin to copy native libraries -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>3.3.1</version>
+                <executions>
+                    <execution>
+                        <id>copy-native-libraries</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.outputDirectory}/lib</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>src/main/resources</directory>
+                                    <includes>
+                                        <include>*.so</include>
+                                    </includes>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- JAR plugin -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.3.0</version>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <addClasspath>true</addClasspath>
+                            <classpathPrefix>lib/</classpathPrefix>
+                            <mainClass>com.cloudflare.quiche.Quiche</mainClass>
+                        </manifest>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+    <profiles>
+        <!-- Windows profile -->
+        <profile>
+            <id>windows</id>
+            <activation>
+                <os>
+                    <family>windows</family>
+                </os>
+            </activation>
+            <properties>
+                <native.lib.name>quiche.dll</native.lib.name>
+            </properties>
+        </profile>
+        <!-- Linux profile -->
+        <profile>
+            <id>linux</id>
+            <activation>
+                <os>
+                    <family>unix</family>
+                    <name>Linux</name>
+                    <arch>amd64</arch>
+                </os>
+            </activation>
+            <properties>
+                <native.lib.name>libquiche.so</native.lib.name>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <version>3.1.0</version>
+                        <executions>
+                            <execution>
+                                <id>build-native-lib-linux</id>
+                                <phase>compile</phase>
+                                <goals>
+                                    <goal>exec</goal>
+                                </goals>
+                                <configuration>
+                                    <executable>gcc</executable>
+                                    <arguments>
+                                        <argument>-fPIC</argument>
+                                        <argument>-shared</argument>
+                                        <argument>-I${java.home}/include</argument>
+                                        <argument>-I${java.home}/include/linux</argument>
+                                        <argument>-I${project.basedir}/src/main/native</argument>
+                                        <argument>-I${native.build.dir}/quiche/quiche/include</argument>
+                                        <argument>-L${project.basedir}/src/main/resources</argument>
+                                        <argument>-o</argument>
+                                        <argument>${project.build.directory}/libquiche.so</argument>
+                                        <argument>${project.basedir}/src/main/native/quiche_wrapper.c</argument>
+                                        <argument>${project.basedir}/src/main/native/quiche_jni.c</argument>
+                                        <argument>-lquiche</argument>
+                                        <argument>-Wl,-rpath,${project.basedir}/src/main/resources</argument>
+                                    </arguments>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>
